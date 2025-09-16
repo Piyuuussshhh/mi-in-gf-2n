@@ -2,6 +2,7 @@ use std::io;
 
 mod polynomial;
 use polynomial::object;
+use polynomial::irr_poly::get_irreducible_polynomial;
 
 fn main() {
     // Take the polynomial who's multiplicative inverse is to be found as input.
@@ -19,23 +20,31 @@ fn main() {
     if let Some('0') = input_poly_coeffs.chars().nth(0) {
         panic!("Most significant bit (MSB) has to be set, else its redundant")
     }
-    let input_poly_coeffs = input_poly_coeffs
+
+    // Convert the bit string to a terms array.
+    let input_poly_terms = input_poly_coeffs
         .chars()
-        .map(|v| if v == '1' { true } else { false })
-        .collect::<Vec<bool>>();
-    let input_poly = object::Polynomial {
-        degree: (input_poly_coeffs.len() - 1) as u32,
-        coeffs: input_poly_coeffs,
-    };
+        .enumerate()
+        .filter_map(|(idx, bit)| {
+            if bit == '1' {
+                let term_power = (input_poly_coeffs.len() - 1 - idx) as u8;
+                Some(term_power)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<u8>>();
+
+    let input_poly = object::GF2NPolynomial::new(input_poly_terms);
     println!("Input polynomial: {}", input_poly.algebraic_string());
 
     // The N in GF(2^N).
-    let n: u32 = input_poly.degree;
+    let n: u32 = input_poly.degree + 1;
     println!("The first Galois Field the polynomial belongs to is GF(2^{n}), therefore we will select a suitable irreducible polynomial");
 
     // Calculate and get the first irreducible polynomial of degree n over GF(2^n).
     let irr_poly = get_irreducible_polynomial(n);
-    if irr_poly == object::Polynomial::zero() {
+    if irr_poly == object::GF2NPolynomial::zero() {
         println!("Could not find an irreducible polynomial. Exiting...");
         return;
     }

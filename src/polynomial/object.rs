@@ -1,118 +1,198 @@
 #![allow(non_snake_case)]
+use comfy_table::Table;
+use std::{
+    collections::{BTreeSet, HashMap},
+    ops::{Add, Div, Mul, Sub},
+};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Polynomial {
+#[derive(Clone, Debug, PartialEq)]
+pub struct GF2NPolynomial {
     pub degree: u32,
-    // If true, bit at that index is set (1). Else if false, bit at that index is not set (0).
-    pub coeffs: Vec<bool>,
+    // Contains the powers of all the terms of the GF2Npolynomial with coefficient 1.
+    pub terms: Vec<u8>,
 }
 
-impl Polynomial {
+impl GF2NPolynomial {
+    pub fn new(terms: Vec<u8>) -> Self {
+        Self { degree: 0, terms }.fix_terms()
+    }
+
     pub fn zero() -> Self {
         Self {
             degree: 0,
-            coeffs: vec![false],
+            terms: vec![],
         }
     }
 
-    fn one() -> Self {
+    pub fn one() -> Self {
         Self {
             degree: 0,
-            coeffs: vec![true],
+            // Because x^0 = 1
+            terms: vec![0],
         }
-    }
-
-    pub fn trim(mut self) -> Self {
-        if let Some(first_one) = self.coeffs.iter().position(|&c| c) {
-            self.coeffs = self.coeffs.split_off(first_one);
-            self.degree = (self.coeffs.len() - 1) as u32;
-        } else {
-            // This is the zero polynomial
-            self.coeffs = vec![false];
-            self.degree = 0;
-        }
-        self
-    }
-
-    pub fn algebraic_string(&self) -> String {
-        if self == Polynomial::zero() {
-            println!("0");
-            return;
-        }
-
-        let poly_clone = self.clone();
-        let poly_clone = poly_clone
-            .coeffs
-            .into_iter()
-            .enumerate()
-            .map(|(idx, bit)| {
-                if bit {
-                    let power = poly_clone.degree as usize - idx;
-                    match power {
-                        0 => "1".to_string(),
-                        1 => "x".to_string(),
-                        _ => format!("x^{}", power),
-                    }
-                } else {
-                    "".to_string()
-                }
-            })
-            .filter(|term| !term.is_empty())
-            .collect::<Vec<String>>();
-
-        poly_clone.join(" + ")
-    }
-
-    fn divide_by(&self, divisor: &Polynomial) -> (Self, Self) {
-        let dividend_len = (self.degree + 1) as usize;
-        let divisor_len = (divisor.degree + 1) as usize;
-
-        // If the divisor is greater than the dividend, quotient = 0, remainder = dividend. eg 3 / 5 -> (0, 3)
-        if dividend_len < divisor_len || self.degree < divisor.degree {
-            return (Self::zero(), self.clone());
-        }
-
-        /*
-            Think about it.
-            eg. If you divide some polynomial p(x) = x^6 + ... with some other polynomial g(x) = x^2 + ...,
-            the degree of the quotient will be 6 - 2 = 4 -> (dividend's degree - divisor's degree = h, let's say)
-
-            Then the length of a bit string to represent a polynomial of degree n will always be h + 1.
-        */
-        let mut quotient = Self {
-            degree: self.degree - divisor.degree,
-            coeffs: vec![false; (dividend_len - divisor_len) + 1],
-        };
-
-        let mut remainder = self.clone();
-
-        for i in 0..=(dividend_len - divisor_len) {
-            if remainder.coeffs[i] {
-                quotient.coeffs[i] = true;
-                for j in 0..divisor_len {
-                    remainder.coeffs[i + j] ^= divisor.coeffs[j];
-                }
-            }
-        }
-
-        // Remove the leading 0s (false) from the remainder and set its degree.
-        let remainder = remainder.trim();
-
-        (quotient, remainder)
     }
 
     /// Calculated using the Extended Euclidean Algorithm.
-    pub fn inverse(&self, irreducible_polynomial: &Polynomial) -> Self {
-        let mut Q = Polynomial::zero();
-        let mut A = self.clone();
-        let mut B = irreducible_polynomial.clone();
-        let mut R = Polynomial::one();
-        let mut T1 = Polynomial::zero();
-        let mut T2 = Polynomial::one();
-        let mut S = Polynomial::zero();
+    pub fn inverse(&self, irreducible_polynomial: &GF2NPolynomial) -> Self {
+        let mut A = irreducible_polynomial.clone();
+        let mut B = self.clone();
+        let mut T1 = GF2NPolynomial::zero();
+        let mut T2 = GF2NPolynomial::one();
 
-        while R != Polynomial::zero() {
-            
+        let mut table = Table::new();
+        table.set_header(vec!["Q", "A", "B", "R", "T1", "T2", "S"]);
+        while !B.terms.is_empty() {
+            let (Q, R) = A.clone() / B.clone();
+            let S = T1.clone() - Q.clone() * T2.clone();
+            table.add_row(vec![
+                Q.algebraic_string(),
+                A.algebraic_string(),
+                B.algebraic_string(),
+                R.algebraic_string(),
+                T1.algebraic_string(),
+                T2.algebraic_string(),
+                S.algebraic_string(),
+            ]);
+            // Preparing next round of EEA
+            A = B;
+            B = R;
+            T1 = T2;
+            T2 = S;
         }
+
+        println!("{table}");
+
+        T1
+    }
+
+    pub fn algebraic_string(&self) -> String {
+        if self.terms.is_empty() {
+            return String::from("0");
+        }
+
+        self.terms
+            .iter()
+            .map(|&power| {
+                if power == 0 {
+                    "1".to_string()
+                } else if power == 1 {
+                    "x".to_string()
+                } else {
+                    format!("x^{}", power)
+                }
+            })
+            .collect::<Vec<String>>()
+            .join(" + ")
+    }
+
+    fn fix_terms(mut self) -> Self {
+        self.dedup();
+        self.terms.sort_unstable();
+        self.terms.reverse();
+
+        if let Some(&max_power) = self.terms.first() {
+            self.degree = max_power as u32;
+        } else {
+            self.degree = 0;
+        }
+
+        self
+    }
+
+    fn dedup(&mut self) {
+        let mut counts = HashMap::new();
+        for &number in self.terms.iter() {
+            *counts.entry(number).or_insert(0) += 1;
+        }
+        self.terms.clear();
+
+        for (number, count) in counts {
+            if count % 2 != 0 {
+                self.terms.push(number);
+            }
+        }
+    }
+
+    fn xor(&self, rhs: &Self) -> Self {
+        let set_lhs: BTreeSet<_> = self.terms.iter().copied().collect();
+        let set_rhs: BTreeSet<_> = rhs.terms.iter().copied().collect();
+
+        let sum = set_lhs
+            .symmetric_difference(&set_rhs)
+            .copied()
+            .collect::<Vec<u8>>();
+
+        if sum.is_empty() {
+            return GF2NPolynomial::zero();
+        }
+
+        GF2NPolynomial::new(sum)
+    }
+}
+
+impl Add for GF2NPolynomial {
+    type Output = GF2NPolynomial;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        self.xor(&rhs)
+    }
+}
+
+impl Sub for GF2NPolynomial {
+    type Output = GF2NPolynomial;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        self.xor(&rhs)
+    }
+}
+
+impl Mul for GF2NPolynomial {
+    type Output = GF2NPolynomial;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        if self.terms.is_empty() || rhs.terms.is_empty() {
+            return GF2NPolynomial::zero();
+        }
+        let mut cross_product = Vec::new();
+        for &p1 in self.terms.iter() {
+            for &p2 in rhs.terms.iter() {
+                cross_product.push(p1 + p2);
+            }
+        }
+
+        GF2NPolynomial::new(cross_product)
+    }
+}
+
+impl Div for GF2NPolynomial {
+    type Output = (GF2NPolynomial, GF2NPolynomial);
+
+    /// Returns a tuple of (quotient, remainder)
+    fn div(self, rhs: Self) -> Self::Output {
+        if rhs.terms.is_empty() {
+            panic!("Division by 0 polynomial");
+        }
+        // If dividing a polynomial by a polynomial of higher degree, return (q = 0, r = dividend)
+        if rhs.degree > self.degree {
+            return (GF2NPolynomial::zero(), self);
+        }
+
+        let mut quotient = GF2NPolynomial::zero();
+        let mut remainder = self;
+
+        while !remainder.terms.is_empty() && remainder.degree >= rhs.degree {
+            let degree_diff = (remainder.degree - rhs.degree) as u8;
+            let term = GF2NPolynomial::new(vec![degree_diff]);
+
+            // Add the new term to the quotient
+            quotient = quotient + term.clone();
+
+            // Calculate the remainder
+            let product = rhs.clone() * term.clone();
+            remainder = remainder - product;
+        }
+
+        // Return the (quotient, remainder)
+        (quotient.fix_terms(), remainder.fix_terms())
     }
 }
