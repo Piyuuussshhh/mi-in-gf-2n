@@ -1,8 +1,9 @@
-use std::io;
+use std::io::{self, Write};
 
 mod polynomial;
-use polynomial::object;
 use polynomial::irr_poly::get_irreducible_polynomial;
+use polynomial::object;
+use polynomial::validation::validate;
 
 fn main() {
     // Take the polynomial who's multiplicative inverse is to be found as input.
@@ -16,9 +17,6 @@ fn main() {
     let input_poly_coeffs = input_poly_coeffs.trim();
     if input_poly_coeffs.chars().any(|v| v != '1' && v != '0') {
         panic!("Only input 1s and 0s");
-    }
-    if let Some('0') = input_poly_coeffs.chars().nth(0) {
-        panic!("Most significant bit (MSB) has to be set, else its redundant")
     }
 
     // Convert the bit string to a terms array.
@@ -35,12 +33,14 @@ fn main() {
         })
         .collect::<Vec<u8>>();
 
+    // The N in GF(2^N).
+    let n: u32 = input_poly_coeffs.len() as u32;
     let input_poly = object::GF2NPolynomial::new(input_poly_terms);
     println!("Input polynomial: {}", input_poly.algebraic_string());
 
-    // The N in GF(2^N).
-    let n: u32 = input_poly.degree + 1;
-    println!("The first Galois Field the polynomial belongs to is GF(2^{n}), therefore we will select a suitable irreducible polynomial");
+    println!(
+        "The first Galois Field the polynomial belongs to is GF(2^{n}), therefore we will select a suitable irreducible polynomial"
+    );
 
     // Calculate and get the first irreducible polynomial of degree n over GF(2^n).
     let irr_poly = get_irreducible_polynomial(n);
@@ -58,4 +58,14 @@ fn main() {
         n,
         inverse_poly.algebraic_string(),
     );
+
+    io::stdout().flush().expect("err");
+    print!("\nPress enter to validate the output...");
+    io::stdout().flush().expect("err");
+    let mut enter = String::new();
+    io::stdin()
+        .read_line(&mut enter)
+        .expect("Could not take enter input");
+
+    validate(&input_poly, &inverse_poly, &irr_poly, n);
 }
