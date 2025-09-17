@@ -9,7 +9,9 @@ fn main() {
     // Take the polynomial who's multiplicative inverse is to be found as input.
     let mut input_poly_coeffs = String::new();
     println!(
-        "Enter the coefficients of the polynomial (highest to lowest, eg 1101 for x^3 + x^2 + 1):"
+        "\nEnter the coefficients of the polynomial (highest to lowest, eg 1101 for x^3 + x^2 + 1) 
+(NOTE: For the field GF(2^N) to be ascertained, the value of N will depend on the length of the input. 
+For example, to calculate the inverse of x^4 in GF(2^8), the input will be 00010000 (length 8 bit string)):"
     );
     io::stdin()
         .read_line(&mut input_poly_coeffs)
